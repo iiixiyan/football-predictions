@@ -268,26 +268,38 @@ https://kt.59itou.com/379/match3/?matchid={matchid}&lotteryId=90&lottery_style=j
 - **Token**: `/root/.github_pat`（自动读取）
 - **Git配置**: user.name=ClawBot, user.email=clawbot@hermes.ai
 
-### 推送流程（Python subprocess，避免终端cwd问题）
+### 推送流程（两步：commit用Python，push用后台terminal）
 
+> ⚠️ **git push常因网络波动超时**（Python subprocess/terminal foreground 120s均不够）。经验证：**后台terminal + 300s超时 + process wait** 是最可靠方式。
+
+**Step 1 — 写文件+commit（Python subprocess）**:
 ```python
 import subprocess, os
 
-# 准备文件
-date_str = "YYYY-MM-DD"  # 预测日期
+date_str = "YYYY-MM-DD"
 filepath = f"/root/football-predictions/jingzu/{date_str[:4]}/{date_str}-predictions.md"
 os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
-# 写入预测记录（含完整输出格式的Markdown）
 with open(filepath, "w") as f:
     f.write(prediction_markdown)
 
-# Git操作
 os.chdir("/root/football-predictions")
-subprocess.run(["git", "add", "-A"])
-subprocess.run(["git", "commit", "-m", f"预测: {date_str} 竞足V2预测记录"])
-subprocess.run(["git", "push", "origin", "main"])
+token = open("/root/.github_pat").read().strip()
+subprocess.run(["git", "remote", "set-url", "origin",
+    f"https://ClawBot:{token}@github.com/iiixiyan/football-predictions.git"], check=True)
+subprocess.run(["git", "add", "-A"], check=True)
+subprocess.run(["git", "commit", "-m", f"预测: {date_str} 竞足V2预测记录"], check=True)
 ```
+
+**Step 2 — Push（后台terminal + wait，唯一定时可靠方式）**:
+```
+terminal(command="cd /root/football-predictions && git push origin main 2>&1; echo EXIT:$?",
+         background=true, timeout=300, notify_on_complete=true)
+→ process(action='wait', session_id='...', timeout=200)
+→ 检查输出含 "EXIT:0" 即成功
+```
+
+**多commit逐个推送**：当有多个commit需推送时，逐条commit逐条push，比合并成一条push更可靠（单次payload小，失败可单独重试）。
 
 ### 推送内容格式
 文件顶部必须包含元数据头：
